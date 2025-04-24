@@ -41,7 +41,7 @@ export const getBoardTasksByFixedStatuses = async (req, res) => {
         // Инициализируем объект с пустыми статусами
         const grouped = {
             Created: [],
-            'In Progress': [],
+            InProgress: [],
             Review: [],
             Test: [],
             Merge: []

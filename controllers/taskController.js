@@ -11,7 +11,7 @@ export const getTask = async (req, res) => {
     const task = await Task.findById(req.params.id)
         .populate('assignedTo', '-password')
         .populate('createdBy', '-password');
-    if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+    if (!task) return res.status(404).json({message: 'Задача не найдена'});
     res.json(task);
 };
 
@@ -32,7 +32,7 @@ export const getAllTasks = async (req, res) => {
             .populate('createdBy', 'fullName')
             .populate('boardId', 'name')    // ✅ правильно
             .populate('projectId', 'name')  // ✅ правильно
-            .sort({ createdAt: -1 });
+            .sort({createdAt: -1});
 
         const transformed = tasks.map(task => ({
             ...task._doc,
@@ -42,14 +42,14 @@ export const getAllTasks = async (req, res) => {
 
         res.json(transformed);
     } catch (error) {
-        res.status(500).json({ message: 'Ошибка при получении задач', error });
+        res.status(500).json({message: 'Ошибка при получении задач', error});
     }
 };
 
 // ✏️ Обновить задачу (только автор или участник)
 export const updateTask = async (req, res) => {
     const task = await Task.findById(req.params.id);
-    if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+    if (!task) return res.status(404).json({message: 'Задача не найдена'});
 
     const userId = req.user.userId;
     const isCreator = task.createdBy.toString() === userId;
@@ -57,7 +57,7 @@ export const updateTask = async (req, res) => {
     const isManager = req.user.role === 'manager' || req.user.role === 'admin';
 
     if (!isCreator && !isAssigned && !isManager) {
-        return res.status(403).json({ message: 'Нет прав редактировать задачу' });
+        return res.status(403).json({message: 'Нет прав редактировать задачу'});
     }
 
     Object.assign(task, req.body);
@@ -69,13 +69,13 @@ export const updateTask = async (req, res) => {
 // 🔁 Изменение статуса задачи
 export const updateTaskStatus = async (req, res) => {
     const task = await Task.findById(req.params.id);
-    if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+    if (!task) return res.status(404).json({message: 'Задача не найдена'});
 
     const userId = req.user.userId;
     const isCreator = task.createdBy.toString() === userId;
     const isAssigned = task.assignedTo.includes(userId);
     if (!isCreator && !isAssigned) {
-        return res.status(403).json({ message: 'Нет прав менять статус задачи' });
+        return res.status(403).json({message: 'Нет прав менять статус задачи'});
     }
 
     const fromStatus = task.status;
@@ -92,28 +92,28 @@ export const updateTaskStatus = async (req, res) => {
         by: userId
     });
 
-    res.json({ message: 'Статус обновлён', task });
+    res.json({message: 'Статус обновлён', task});
 };
 
 // 🗑 Архивировать задачу
 export const archiveTask = async (req, res) => {
     const task = await Task.findById(req.params.id);
-    if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+    if (!task) return res.status(404).json({message: 'Задача не найдена'});
 
     if (task.createdBy.toString() !== req.user.userId && req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Только автор или админ может архивировать' });
+        return res.status(403).json({message: 'Только автор или админ может архивировать'});
     }
 
     task.isArchived = true;
     await task.save();
-    res.json({ message: 'Задача архивирована' });
+    res.json({message: 'Задача архивирована'});
 };
 
 // 📜 История задачи
 export const getTaskHistory = async (req, res) => {
-    const history = await TaskHistory.find({ taskId: req.params.id })
+    const history = await TaskHistory.find({taskId: req.params.id})
         .populate('by', 'fullName role')
-        .sort({ timestamp: -1 });
+        .sort({timestamp: -1});
     res.json(history);
 };
 
@@ -124,7 +124,24 @@ export const createTask = async (req, res) => {
         const board = await Board.findById(boardId);
         if (!board) return res.status(404).json({ message: 'Доска не найдена' });
 
-        const { title, description, priority, estimatedHours, startDate, dueDate, assignedTo } = req.body;
+        const { title, description, priority, estimatedHours, startDate, dueDate, assignedTo, status } = req.body;
+
+        // Проверка поля title на обязательность
+        if (!title || title.trim() === '') {
+            return res.status(400).json({ message: 'Заголовок задачи обязателен' });
+        }
+
+        // Проверка на правильность значения priority
+        const validPriorities = ['Low', 'Normal', 'Medium', 'High', 'Urgent'];
+        if (priority && !validPriorities.includes(priority)) {
+            return res.status(400).json({ message: 'Неверное значение для поля priority' });
+        }
+
+        // Проверка на правильность типа для estimatedHours
+        let estimatedHoursValue = estimatedHours ? Number(estimatedHours) : 0;
+        if (isNaN(estimatedHoursValue)) {
+            return res.status(400).json({ message: 'Поле estimatedHours должно быть числом' });
+        }
 
         const taskImg = req.file ? path.basename(req.file.filename) : null;
 
@@ -132,9 +149,10 @@ export const createTask = async (req, res) => {
             title,
             description,
             priority,
-            estimatedHours,
+            estimatedHours: estimatedHoursValue,
             startDate,
             dueDate,
+            status,
             assignedTo,
             createdBy: req.user.userId,
             projectId: board.projectId,
@@ -148,4 +166,3 @@ export const createTask = async (req, res) => {
         res.status(500).json({ message: 'Ошибка при создании задачи', error });
     }
 };
-

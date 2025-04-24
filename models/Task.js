@@ -5,15 +5,19 @@ const TaskSchema = new mongoose.Schema({
     description: String,
     status: {
         type: String,
-        enum: ['Created', 'In Progress', 'Review', 'Test', 'Merge'],
+        enum: ['Created', 'InProgress', 'Review', 'Test', 'Merge'],
         default: 'Created'
     },
-    priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' },
+    priority: {
+        type: String,
+        enum: ['Low', 'Normal', 'Medium', 'High', 'Urgent'],  // Обновленный enum
+        default: 'Medium'
+    },
     assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }],
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
     boardId: { type: mongoose.Schema.Types.ObjectId, ref: 'Board', required: true },
-    taskImg: { type: String, default: null }, // тут будет imgHash
+    taskImg: { type: String, default: null },
     estimatedHours: Number,
     startDate: Date,
     dueDate: Date,

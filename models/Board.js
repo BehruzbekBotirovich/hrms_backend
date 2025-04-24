@@ -7,7 +7,7 @@ const BoardSchema = new mongoose.Schema({
     members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     statusColumns: {
         type: [String],
-        default: ['Created', 'In Progress', 'Review', 'Test', 'Merge']
+        default: ['Created', 'InProgress', 'Review', 'Test', 'Merge']
     },
     isArchived: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
