@@ -12,9 +12,14 @@ const UserSchema = new mongoose.Schema({
     avatarUrl: String,
     isActive: { type: Boolean, default: true },
     password: { type: String, required: true },
-    createdAt: { type: Date, default: Date.now }
+    createdAt: { type: Date, default: Date.now },
+
+    // Новые поля
+    passportSeries: { type: String, required: false }, // Серия паспорта
+    birthDate: { type: Date, required: false } // Дата рождения
 });
 
+// Хеширование пароля перед сохранением
 UserSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();
     this.password = await bcrypt.hash(this.password, 10);

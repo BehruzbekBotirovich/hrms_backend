@@ -1,18 +1,49 @@
 import Task from '../models/Task.js';
 import Project from '../models/Project.js';
+import TaskHistory from '../models/TaskHistory.js';
 import Board from '../models/Board.js';
 import path from 'path';
-
-import TaskHistory from '../models/TaskHistory.js';
 import mongoose from 'mongoose';
 
 // 🔍 Получить задачу по ID
 export const getTask = async (req, res) => {
-    const task = await Task.findById(req.params.id)
-        .populate('assignedTo', '-password')
-        .populate('createdBy', '-password');
-    if (!task) return res.status(404).json({message: 'Задача не найдена'});
-    res.json(task);
+    try {
+        // Получаем задачу по ID
+        const task = await Task.findById(req.params.id)
+            .populate('assignedTo', '-password')  // Популяция для участников
+            .populate('createdBy', '-password'); // Популяция для создателя
+
+        if (!task) {
+            return res.status(404).json({ message: 'Задача не найдена' });
+        }
+
+        // Получаем историю этой задачи, сортируем по timestamp (дате)
+        const history = await TaskHistory.find({ taskId: task._id })
+            .populate('by', 'fullName role')  // Получаем данные об актерах
+            .sort({ timestamp: 1 });  // Сортируем по времени (от старого к новому)
+
+        // Формируем историю с добавлением изменений статуса
+        const updatedHistory = history.map(item => ({
+            ...item._doc,
+            statusChange: {
+                fromStatus: item.fromStatus,
+                toStatus: item.toStatus,
+            }
+        }));
+
+        // Формируем ответ с полями даты и историей
+        const taskData = {
+            ...task._doc,
+            startDate: task.startDate,
+            dueDate: task.dueDate,
+            history: updatedHistory
+        };
+
+        res.json(taskData);
+    } catch (error) {
+        console.error('Ошибка при получении задачи:', error);
+        res.status(500).json({ message: 'Ошибка при получении задачи', error });
+    }
 };
 
 // 📃 Получить все задачи (с фильтрами или без)
@@ -48,22 +79,56 @@ export const getAllTasks = async (req, res) => {
 
 // ✏️ Обновить задачу (только автор или участник)
 export const updateTask = async (req, res) => {
-    const task = await Task.findById(req.params.id);
-    if (!task) return res.status(404).json({message: 'Задача не найдена'});
+    try {
+        const task = await Task.findById(req.params.id);
+        if (!task) return res.status(404).json({ message: 'Задача не найдена' });
 
-    const userId = req.user.userId;
-    const isCreator = task.createdBy.toString() === userId;
-    const isAssigned = task.assignedTo.includes(userId);
-    const isManager = req.user.role === 'manager' || req.user.role === 'admin';
+        const userId = req.user.userId;
+        const isCreator = task.createdBy.toString() === userId;
+        const isAssigned = task.assignedTo.includes(userId);
+        const isManager = req.user.role === 'manager' || req.user.role === 'admin';
 
-    if (!isCreator && !isAssigned && !isManager) {
-        return res.status(403).json({message: 'Нет прав редактировать задачу'});
+        if (!isCreator && !isAssigned && !isManager) {
+            return res.status(403).json({ message: 'Нет прав редактировать задачу' });
+        }
+
+        // Изменение полей задачи, кроме статуса
+        const { title, description, priority, estimatedHours, startDate, dueDate, assignedTo } = req.body;
+
+        // Если есть новое изображение, обновляем его (не добавляем к старому, а заменяем)
+        let taskImg = task.taskImg;  // Сохраняем старое изображение, если оно есть
+        if (req.file) {
+            // Если в запросе передано новое изображение, обновляем путь
+            taskImg = path.basename(req.file.filename);
+        }
+
+        // Преобразуем поля для обновления:
+        const updateData = {
+            title,
+            description,
+            priority,
+            estimatedHours: estimatedHours !== undefined ? estimatedHours : task.estimatedHours,
+            startDate: startDate || task.startDate,
+            dueDate: dueDate || task.dueDate,
+            assignedTo: assignedTo || task.assignedTo,
+            taskImg,
+            updatedAt: new Date(),
+        };
+
+        // Обновляем задачу
+        const updatedTask = await Task.findByIdAndUpdate(
+            req.params.id,
+            updateData,
+            { new: true }  // возвращаем обновленный объект
+        ).populate('assignedTo', 'fullName avatarUrl')  // Популяция для участников
+            .populate('createdBy', 'fullName'); // Популяция для создателя
+
+        res.json(updatedTask);
+
+    } catch (error) {
+        console.error('Ошибка при обновлении задачи:', error);
+        res.status(500).json({ message: 'Ошибка при обновлении задачи', error });
     }
-
-    Object.assign(task, req.body);
-    task.updatedAt = new Date();
-    await task.save();
-    res.json(task);
 };
 
 // 🔁 Изменение статуса задачи
@@ -138,18 +203,16 @@ export const createTask = async (req, res) => {
         }
 
         // Проверка на правильность типа для estimatedHours
-        let estimatedHoursValue = estimatedHours ? Number(estimatedHours) : 0;
-        if (isNaN(estimatedHoursValue)) {
+        let estimatedHoursValue = estimatedHours !== undefined ? (estimatedHours === null ? null : Number(estimatedHours)) : null;
+        if (estimatedHoursValue !== null && isNaN(estimatedHoursValue)) {
             return res.status(400).json({ message: 'Поле estimatedHours должно быть числом' });
         }
-
         const taskImg = req.file ? path.basename(req.file.filename) : null;
-
         const task = new Task({
             title,
             description,
             priority,
-            estimatedHours: estimatedHoursValue,
+            estimatedHours: estimatedHoursValue,  // Здесь сохраняем null или число
             startDate,
             dueDate,
             status,

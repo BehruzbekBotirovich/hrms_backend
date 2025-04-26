@@ -6,7 +6,7 @@ import {
     createUser,
     updateUser,
     deleteUser,
-    getUsers
+    getUsers, getMeTasks
 } from '../controllers/userController.js';
 import {verifyToken} from '../middleware/authMiddleware.js';
 
@@ -19,5 +19,6 @@ router.delete('/:id', verifyToken, deleteUser);
 //user/me
 router.get('/me', verifyToken, getMe);
 router.patch('/me', verifyToken, updateMe);
+router.get('/me/tasks', verifyToken, getMeTasks);
 
 export default router;

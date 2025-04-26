@@ -32,10 +32,10 @@ export const createBoard = async (req, res) => {
 export const getBoardTasksByFixedStatuses = async (req, res) => {
     try {
         const { boardId } = req.params;
-
+        // Запрос задач с populating для assignedTo и createdBy
         const tasks = await Task.find({ boardId, isArchived: false })
-            .populate('assignedTo', 'fullName avatarUrl')
-            .populate('createdBy', 'fullName')
+            .populate('assignedTo', 'fullName avatarUrl')  // Добавляем avatarUrl
+            .populate('createdBy', 'fullName avatarUrl')
             .sort({ createdAt: -1 });
 
         // Инициализируем объект с пустыми статусами
@@ -47,6 +47,7 @@ export const getBoardTasksByFixedStatuses = async (req, res) => {
             Merge: []
         };
 
+        // Группировка задач по статусу
         for (const task of tasks) {
             const status = task.status?.trim();
             if (grouped[status]) {
@@ -54,12 +55,14 @@ export const getBoardTasksByFixedStatuses = async (req, res) => {
             }
         }
 
+        // Возвращаем задачи, сгруппированные по статусу
         res.json(grouped);
     } catch (error) {
         console.error('Ошибка при получении задач по boardId:', error);
         res.status(500).json({ message: 'Ошибка при получении задач', error });
     }
 };
+
 
 // 📃 Получить доски проекта  search
 export const getProjectBoards = async (req, res) => {

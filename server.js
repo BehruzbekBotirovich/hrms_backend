@@ -19,6 +19,13 @@ app.use(cors());
 app.use(helmet());
 app.use(express.json());
 app.use('/user', uploadRoutes);
+// Настройка CORS для разрешения запросов с разных источников
+app.use(cors({
+    origin: '*',  // Разрешить доступ с любого источника
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,  // Если нужно работать с cookies
+}));
 
 app.get('/api', (req, res) => {
     res.send('Hello world from backend PLANERA');
