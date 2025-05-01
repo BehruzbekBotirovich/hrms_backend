@@ -13,7 +13,6 @@ const UserSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true },
     password: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
-
     // Новые поля
     passportSeries: { type: String, required: false }, // Серия паспорта
     birthDate: { type: Date, required: false } // Дата рождения

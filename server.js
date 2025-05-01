@@ -31,6 +31,14 @@ app.get('/api', (req, res) => {
     res.send('Hello world from backend PLANERA');
 });
 
+// Webhook для Telegram
+app.post('/your-webhook-endpoint', (req, res) => {
+    const update = req.body;
+    bot.processUpdate(update);  // Обрабатываем обновление от Telegram
+    res.sendStatus(200);  // Ответ Telegram о том, что обновление получено
+});
+
+
 app.use('/api/auth', authRoutes); // пример маршрута
 app.use('/api/users', userRoutes);
 app.use('/api/projects', projectRoutes);
