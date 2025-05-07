@@ -1,26 +1,21 @@
 import TelegramBot from 'node-telegram-bot-api';
-import fetch from 'node-fetch';  // Импортируем node-fetch для запросов
-import User from '../models/User.js';  // Импорт модели User
-import { format } from 'date-fns';  // Импортируем функцию format из date-fns
+import fetch from 'node-fetch';
+import User from '../models/User.js';
+import { format } from 'date-fns';
 
-const botToken = '7812173829:AAGsGjYvtjXNWGyi7JrXHFcJ9AN02OXFtSk';  // Ваш токен
-const bot = new TelegramBot(botToken, { polling: true });
+const botToken = '7812173829:AAGsGjYvtjXNWGyi7JrXHFcJ9AN02OXFtSk';
+const bot = new TelegramBot(botToken);  // Без { polling: true }
 
-// Получаем номер телефона от пользователя
-bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const phone = msg.contact ? msg.contact.phone_number : null;  // Получаем номер телефона, если пользователь его отправил
-
-    if (phone) {
-        try {
-            // Сохраняем chatId для пользователя в базе данных
-            const user = await User.findOneAndUpdate({ phone }, { chatId }, { upsert: true });
-            console.log(`User ${phone} chatId saved: ${chatId}`);
-        } catch (error) {
-            console.error('Ошибка при сохранении chatId:', error);
-        }
+// Получение и сохранение chatId (если нужно)
+export const saveChatId = async (phone, chatId) => {
+    try {
+        // Сохраняем chatId для пользователя в базе данных
+        const user = await User.findOneAndUpdate({ phone }, { chatId }, { upsert: true });
+        console.log(`User ${phone} chatId saved: ${chatId}`);
+    } catch (error) {
+        console.error('Ошибка при сохранении chatId:', error);
     }
-});
+};
 
 // Функция для отправки сообщения в Telegram
 export const sendTelegramMessage = async (chatId, message) => {
@@ -31,8 +26,8 @@ export const sendTelegramMessage = async (chatId, message) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                chat_id: chatId,  // chatId из базы данных
-                text: message,    // Сообщение
+                chat_id: chatId,
+                text: message,
             })
         });
 
@@ -70,7 +65,7 @@ export const notifyTaskCreated = async (task) => {
 
     // Отправляем сообщения назначенным пользователям
     for (const assignedUser of task.assignedTo) {
-        const user = await User.findById(assignedUser);  // Или используйте другое поле для поиска пользователя
+        const user = await User.findById(assignedUser);
         if (user && user.chatId) {
             await sendTelegramMessage(user.chatId, message);  // Отправляем сообщение назначенному пользователю
         } else {
@@ -78,9 +73,3 @@ export const notifyTaskCreated = async (task) => {
         }
     }
 };
-
-// Пример команды для теста
-bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Привет, я твой бот, который будет сообщать о твоих задачах');
-});
