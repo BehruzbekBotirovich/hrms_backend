@@ -8,7 +8,7 @@ const UserSchema = new mongoose.Schema({
     department: String,
     position: String,
     role: { type: String, enum: ['admin', 'manager', 'employee'], default: 'employee' },
-    telegramId: String,
+    chatId: { type: String, required: true },
     avatarUrl: String,
     isActive: { type: Boolean, default: true },
     password: { type: String, required: true },

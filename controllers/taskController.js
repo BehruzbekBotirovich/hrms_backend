@@ -2,9 +2,12 @@ import Task from '../models/Task.js';
 import Project from '../models/Project.js';
 import TaskHistory from '../models/TaskHistory.js';
 import Board from '../models/Board.js';
+import User from '../models/User.js';
 import path from 'path';
+import {format} from 'date-fns';  // Вы можете использовать date-fns для работы с датами
+
 import mongoose from 'mongoose';
-// import { notifyTaskCreated, notifyTaskStatusChanged } from '../utils/telegramBot.js';  // Подключаем файл с функциями
+import {notifyTaskCreated, sendTelegramMessage} from '../utils/telegramBot.js';  // Подключаем файл с функциями
 
 // 🔍 Получить задачу по ID
 export const getTask = async (req, res) => {
@@ -15,13 +18,13 @@ export const getTask = async (req, res) => {
             .populate('createdBy', '-password'); // Популяция для создателя
 
         if (!task) {
-            return res.status(404).json({ message: 'Задача не найдена' });
+            return res.status(404).json({message: 'Задача не найдена'});
         }
 
         // Получаем историю этой задачи, сортируем по timestamp (дате)
-        const history = await TaskHistory.find({ taskId: task._id })
+        const history = await TaskHistory.find({taskId: task._id})
             .populate('by', 'fullName role')  // Получаем данные об актерах
-            .sort({ timestamp: 1 });  // Сортируем по времени (от старого к новому)
+            .sort({timestamp: 1});  // Сортируем по времени (от старого к новому)
 
         // Формируем историю с добавлением изменений статуса
         const updatedHistory = history.map(item => ({
@@ -43,7 +46,7 @@ export const getTask = async (req, res) => {
         res.json(taskData);
     } catch (error) {
         console.error('Ошибка при получении задачи:', error);
-        res.status(500).json({ message: 'Ошибка при получении задачи', error });
+        res.status(500).json({message: 'Ошибка при получении задачи', error});
     }
 };
 
@@ -64,7 +67,7 @@ export const getAllTasks = async (req, res) => {
             .populate('createdBy', 'fullName')
             .populate('boardId', 'name')    // ✅ правильно
             .populate('projectId', 'name')  // ✅ правильно
-            .sort({ createdAt: -1 });
+            .sort({createdAt: -1});
 
         const transformed = tasks.map(task => ({
             ...task._doc,
@@ -74,7 +77,7 @@ export const getAllTasks = async (req, res) => {
 
         res.json(transformed);
     } catch (error) {
-        res.status(500).json({ message: 'Ошибка при получении задач', error });
+        res.status(500).json({message: 'Ошибка при получении задач', error});
     }
 };
 
@@ -135,35 +138,20 @@ export const updateTask = async (req, res) => {
 // 🔁 Изменение статуса задачи
 export const updateTaskStatus = async (req, res) => {
     try {
-        const task = await Task.findById(req.params.id)
-            .populate('projectId', 'name')  // Получаем название проекта
-            .populate('boardId', 'name');   // Получаем название доски
-
-        if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+        const task = await Task.findById(req.params.id);
+        if (!task) return res.status(404).json({message: 'Задача не найдена'});
 
         const userId = req.user.userId;
         const isCreator = task.createdBy.toString() === userId;
         const isAssigned = task.assignedTo.includes(userId);
         if (!isCreator && !isAssigned) {
-            return res.status(403).json({ message: 'Нет прав менять статус задачи' });
+            return res.status(403).json({message: 'Нет прав менять статус задачи'});
         }
 
         const fromStatus = task.status;
         const toStatus = req.body.status;
-
-        // Обновляем статус задачи
-        task.status = toStatus;
+        task.status = toStatus;  // Обновляем статус
         task.updatedAt = new Date();
-
-        // Формируем сообщение с деталями
-        const message = `
-        📎Статус задачи "${task.title}" был изменен с "${fromStatus}" на "${toStatus}".
-        
-        🎯Проект: ${task.projectId?.name || 'Неизвестный проект'}
-        💻Доска: ${task.boardId?.name || 'Неизвестная доска'}
-        🔑Задача: ${task.title}
-        📌Изменил: ${req.user.fullName || 'Неизвестный пользователь'}
-        `;
 
         // Создаем запись в истории
         await TaskHistory.create({
@@ -174,74 +162,118 @@ export const updateTaskStatus = async (req, res) => {
             by: userId
         });
 
-        // Сохраняем обновленную задачу
+        // Сохраняем задачу с обновленным статусом
         await task.save();
 
-        // Отправляем уведомление через Telegram (если это необходимо)
-        // notifyTaskStatusChanged(task, fromStatus); // Уведомление о изменении статуса через Telegram
+        // Формируем сообщение для Telegram
+        const message = `
+            📌 Статус задачи "${task.title}" был изменен:
+            
+            🔑 Старый статус: ${fromStatus}
+            🔄 Новый статус: ${toStatus}
+            
+            Создатель: ${task.createdBy.fullName}
+            🗓 Дата изменения: ${task.updatedAt ? format(new Date(task.updatedAt), 'MMM dd, yyyy, HH:mm') : 'Не указана'}
+        `;
 
-        res.json({ message, task });
+        // Устанавливаем уникальные chatId, чтобы избежать дублирования
+        const chatIds = new Set();
+
+        // Добавляем chatId создателя задачи, если он существует
+        const creator = await User.findById(task.createdBy);
+        if (creator && creator.chatId) {
+            chatIds.add(creator.chatId);
+        }
+
+        // Добавляем chatId всех назначенных пользователей, если они существуют
+        for (const assignedUser of task.assignedTo) {
+            const user = await User.findById(assignedUser);
+            if (user && user.chatId) {
+                chatIds.add(user.chatId);
+            }
+        }
+
+        // Отправляем сообщение всем уникальным пользователям (создателю и назначенным)
+        for (const chatId of chatIds) {
+            await sendTelegramMessage(chatId, message);
+        }
+
+        // Ответ клиенту
+        res.json({message: 'Статус задачи успешно обновлен и уведомления отправлены.'});
     } catch (error) {
         console.error('Ошибка при изменении статуса задачи:', error);
-        res.status(500).json({ message: 'Ошибка при изменении статуса задачи', error });
+        res.status(500).json({message: 'Ошибка при изменении статуса задачи', error});
     }
 };
 
 // 🗑 Архивировать задачу
 export const archiveTask = async (req, res) => {
     const task = await Task.findById(req.params.id);
-    if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+    if (!task) return res.status(404).json({message: 'Задача не найдена'});
 
     if (task.createdBy.toString() !== req.user.userId && req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Только автор или админ может архивировать' });
+        return res.status(403).json({message: 'Только автор или админ может архивировать'});
     }
 
     task.isArchived = true;
     await task.save();
-    res.json({ message: 'Задача архивирована' });
+    res.json({message: 'Задача архивирована'});
 };
 
 // 📜 История задачи
 export const getTaskHistory = async (req, res) => {
-    const history = await TaskHistory.find({ taskId: req.params.id })
+    const history = await TaskHistory.find({taskId: req.params.id})
         .populate('by', 'fullName role')
-        .sort({ timestamp: -1 });
+        .sort({timestamp: -1});
     res.json(history);
 };
 
-//create task
+// createTask
 export const createTask = async (req, res) => {
     try {
-        const { boardId } = req.params;
+        const {boardId} = req.params;
         const board = await Board.findById(boardId);
-        if (!board) return res.status(404).json({ message: 'Доска не найдена' });
+        if (!board) return res.status(404).json({message: 'Доска не найдена'});
 
-        const { title, description, priority, estimatedHours, startDate, dueDate, assignedTo, status } = req.body;
+        const {title, description, priority, estimatedHours, startDate, dueDate, assignedTo, status} = req.body;
 
         // Проверка поля title на обязательность
         if (!title || title.trim() === '') {
-            return res.status(400).json({ message: 'Заголовок задачи обязателен' });
+            return res.status(400).json({message: 'Заголовок задачи обязателен'});
         }
 
         // Проверка на правильность значения priority
         const validPriorities = ['Low', 'Normal', 'Medium', 'High', 'Urgent'];
         if (priority && !validPriorities.includes(priority)) {
-            return res.status(400).json({ message: 'Неверное значение для поля priority' });
+            return res.status(400).json({message: 'Неверное значение для поля priority'});
         }
 
         // Проверка на правильность типа для estimatedHours
         let estimatedHoursValue = estimatedHours !== undefined ? (estimatedHours === null ? null : Number(estimatedHours)) : null;
         if (estimatedHoursValue !== null && isNaN(estimatedHoursValue)) {
-            return res.status(400).json({ message: 'Поле estimatedHours должно быть числом' });
+            return res.status(400).json({message: 'Поле estimatedHours должно быть числом'});
         }
+
+        // Преобразуем строки в даты, если они есть
+        const startDateParsed = startDate ? new Date(startDate) : null;
+        const dueDateParsed = dueDate ? new Date(dueDate) : null;
+
+        if (isNaN(startDateParsed)) {
+            return res.status(400).json({message: 'Неверный формат даты начала'});
+        }
+
+        if (isNaN(dueDateParsed)) {
+            return res.status(400).json({message: 'Неверный формат даты окончания'});
+        }
+
         const taskImg = req.file ? path.basename(req.file.filename) : null;
         const task = new Task({
             title,
             description,
             priority,
-            estimatedHours: estimatedHoursValue,  // Здесь сохраняем null или число
-            startDate,
-            dueDate,
+            estimatedHours: estimatedHoursValue,
+            startDate: startDateParsed,
+            dueDate: dueDateParsed,
             status,
             assignedTo,
             createdBy: req.user.userId,
@@ -252,24 +284,14 @@ export const createTask = async (req, res) => {
 
         await task.save();
 
-        // Формируем сообщение для Telegram
-        const message = `
-            📩 Новая задача создана:
-            
-            🔖 Задача: "${task.title}"
-            📋 Описание: ${task.description || 'Нет описания'}
-            🔑 Статус: ${task.status}
-            ⏳ Приоритет: ${task.priority || 'Не указан'}
-            🗓 Дата начала: ${task.startDate ? format(new Date(task.startDate), 'MMM dd, yyyy, HH:mm') : 'Не указана'}
-            🗓 Дата окончания: ${task.dueDate ? format(new Date(task.dueDate), 'MMM dd, yyyy, HH:mm') : 'Не указана'}
-            
-            Создатель: ${task.createdBy.fullName || 'Не указан'}
-        `;
+        // Отправляем уведомление в Telegram
+        await notifyTaskCreated(task);
 
-        // Отправляем сообщение через Telegram
-        // В данном случае это сообщение будет просто отправлено в ответ, в front-end
-        res.json({ message, task }); // Возвращаем сообщение и саму задачу в ответ
+        res.status(201).json(task);
     } catch (error) {
-        res.status(500).json({ message: 'Ошибка при создании задачи', error });
+        console.error('Ошибка при создании задачи:', error);
+        res.status(500).json({message: 'Ошибка при создании задачи', error});
     }
 };
+
+

@@ -1,40 +1,86 @@
 import TelegramBot from 'node-telegram-bot-api';
+import fetch from 'node-fetch';  // Импортируем node-fetch для запросов
+import User from '../models/User.js';  // Импорт модели User
+import { format } from 'date-fns';  // Импортируем функцию format из date-fns
 
-const token = '7812173829:AAGsGjYvtjXNWGyi7JrXHFcJ9AN02OXFtSk'; // Ваш токен бота
-const bot = new TelegramBot(token, { polling: true });
+const botToken = '7812173829:AAGsGjYvtjXNWGyi7JrXHFcJ9AN02OXFtSk';  // Ваш токен
+const bot = new TelegramBot(botToken, { polling: true });
 
-// Функция для отправки сообщения с обработкой ошибки 429
+// Получаем номер телефона от пользователя
+bot.on('message', async (msg) => {
+    const chatId = msg.chat.id;
+    const phone = msg.contact ? msg.contact.phone_number : null;  // Получаем номер телефона, если пользователь его отправил
+
+    if (phone) {
+        try {
+            // Сохраняем chatId для пользователя в базе данных
+            const user = await User.findOneAndUpdate({ phone }, { chatId }, { upsert: true });
+            console.log(`User ${phone} chatId saved: ${chatId}`);
+        } catch (error) {
+            console.error('Ошибка при сохранении chatId:', error);
+        }
+    }
+});
+
+// Функция для отправки сообщения в Telegram
 export const sendTelegramMessage = async (chatId, message) => {
+    const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+
     try {
-        const response = await bot.sendMessage(chatId, message);
-        console.log(`Сообщение отправлено: ${response.message_id}`);
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,  // chatId из базы данных
+                text: message,    // Сообщение
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Не удалось отправить сообщение');
+        }
+        console.log('Сообщение отправлено в Telegram');
     } catch (error) {
-        if (error.code === 'ETELEGRAM' && error.message.includes('429')) {
-            const retryAfter = parseInt(error.parameters.retry_after); // Получаем время задержки от Telegram
-            console.log(`Превышен лимит запросов, повторная попытка через ${retryAfter} секунд...`);
-            // Подождать указанное время перед повторной отправкой
-            setTimeout(() => sendTelegramMessage(chatId, message), retryAfter * 1000);
+        console.error('Ошибка при отправке сообщения в Telegram:', error);
+    }
+};
+
+// Уведомление о создании задачи
+export const notifyTaskCreated = async (task) => {
+    const message = `
+        📩 Новая задача создана:
+        
+        🔖 Задача: "${task.title}"
+        📋 Описание: ${task.description || 'Нет описания'}
+        🔑 Статус: ${task.status}
+        ⏳ Приоритет: ${task.priority || 'Не указан'}
+        🗓 Дата начала: ${task.startDate ? format(new Date(task.startDate), 'MMM dd, yyyy, HH:mm') : 'Не указана'}
+        🗓 Дата окончания: ${task.dueDate ? format(new Date(task.dueDate), 'MMM dd, yyyy, HH:mm') : 'Не указана'}
+        
+        Создатель: ${task.createdBy.fullName}
+    `;
+
+    // Получаем chatId создателя задачи
+    const creator = await User.findById(task.createdBy);
+    if (creator && creator.chatId) {
+        await sendTelegramMessage(creator.chatId, message);  // Отправляем сообщение создателю задачи
+    } else {
+        console.log(`Создатель задачи ${task.createdBy} не имеет chatId`);
+    }
+
+    // Отправляем сообщения назначенным пользователям
+    for (const assignedUser of task.assignedTo) {
+        const user = await User.findById(assignedUser);  // Или используйте другое поле для поиска пользователя
+        if (user && user.chatId) {
+            await sendTelegramMessage(user.chatId, message);  // Отправляем сообщение назначенному пользователю
         } else {
-            console.error('Ошибка отправки сообщения:', error);
+            console.log(`Пользователь ${assignedUser} не имеет chatId`);
         }
     }
 };
 
-// Пример функции для уведомления о создании задачи
-export const notifyTaskCreated = async (task) => {
-    const message = `Задача "${task.title}" была успешно создана!\nОписание: ${task.description}\nСтатус: ${task.status}`;
-    await sendTelegramMessage(task.createdBy.telegramId, message);
-    for (let user of task.assignedTo) {
-        await sendTelegramMessage(user.telegramId, message);
-    }
-};
-
-// Пример функции для уведомления о изменении статуса задачи
-export const notifyTaskStatusChanged = async (task, oldStatus) => {
-    console.log('notifyTaskStatusChanged', task, oldStatus);
-    const message = `Статус задачи "${task.title}" был изменен с "${oldStatus}" на "${task.status}".`;
-    await sendTelegramMessage(task.createdBy.telegramId, message);
-    for (let user of task.assignedTo) {
-        await sendTelegramMessage(user.telegramId, message);
-    }
-};
+// Пример команды для теста
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, 'Привет, я твой бот, который будет сообщать о твоих задачах');
+});

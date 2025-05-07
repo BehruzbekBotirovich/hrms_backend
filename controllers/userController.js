@@ -50,8 +50,6 @@ export const getMeTasks = async (req, res) => {
             .populate('projectId', 'name')  // Популяция для получения названия проекта
             .sort({ createdAt: -1 });  // Сортировка по дате создания
 
-        console.log('Задачи из базы данных:', tasks);  // Логируем все задачи
-
         if (!tasks || tasks.length === 0) {
             return res.status(404).json({ message: 'Задачи не найдены' });
         }
@@ -82,8 +80,6 @@ export const getMeTasks = async (req, res) => {
                 groupedTasks.Test.push(task);
             }
         });
-
-        console.log('Группированные задачи:', groupedTasks);  // Логируем группированные задачи
 
         res.json(groupedTasks);
     } catch (error) {

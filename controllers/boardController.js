@@ -32,8 +32,21 @@ export const createBoard = async (req, res) => {
 export const getBoardTasksByFixedStatuses = async (req, res) => {
     try {
         const { boardId } = req.params;
-        // Запрос задач с populating для assignedTo и createdBy
-        const tasks = await Task.find({ boardId, isArchived: false })
+        const { id, priority, assignedTo } = req.query; // Получаем фильтры из query-параметров
+
+        // Инициализируем фильтр
+        const filter = {
+            boardId,
+            isArchived: false
+        };
+
+        // Добавляем условия фильтрации
+        if (id) filter._id = id;  // Фильтрация по id задачи
+        if (priority) filter.priority = priority;  // Фильтрация по приоритету
+        if (assignedTo) filter.assignedTo = assignedTo;  // Фильтрация по исполнителю
+
+        // Запрос задач с фильтрацией и populating для assignedTo и createdBy
+        const tasks = await Task.find(filter)
             .populate('assignedTo', 'fullName avatarUrl')  // Добавляем avatarUrl
             .populate('createdBy', 'fullName avatarUrl')
             .sort({ createdAt: -1 });
@@ -62,6 +75,7 @@ export const getBoardTasksByFixedStatuses = async (req, res) => {
         res.status(500).json({ message: 'Ошибка при получении задач', error });
     }
 };
+
 
 
 // 📃 Получить доски проекта  search
