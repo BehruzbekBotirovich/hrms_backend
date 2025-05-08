@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import Task from '../models/Task.js';
+import path from 'path';
 import {parseISO, format} from 'date-fns';  // Импортируем parseISO и format из date-fns
 
 // 👤 Получить текущего пользователя user/me
@@ -88,17 +89,43 @@ export const getMeTasks = async (req, res) => {
     }
 };
 
-
 //=======================================================================================================
 // создания пользователя
 export const createUser = async (req, res) => {
     try {
-        const user = new User(req.body);
-        await user.save();
-        res.status(201).json({message: 'Пользователь создан', user});
+        const { fullName, email, password, role, chatId } = req.body;
+        const creatorRole = req.user.role;
+
+        // manager не может создавать admin'ов
+        if (creatorRole === 'manager' && role === 'admin') {
+            return res.status(403).json({ message: 'Менеджер не может создавать админов' });
+        }
+
+        // employee не может создавать вообще
+        if (creatorRole === 'employee') {
+            return res.status(403).json({ message: 'Сотрудник не может создавать пользователей' });
+        }
+
+        // Загрузка аватара
+        let avatarUrl = null;
+        if (req.file) {
+            avatarUrl = path.basename(req.file.filename);
+        }
+
+        const newUser = new User({
+            fullName,
+            email,
+            password,
+            role,
+            avatarUrl,
+            chatId
+        });
+
+        await newUser.save();
+        res.status(201).json({ message: 'Пользователь создан', user: newUser });
     } catch (error) {
         console.error(error);
-        res.status(500).json({message: 'Ошибка при создании пользователя', error});
+        res.status(500).json({ message: 'Ошибка при создании пользователя', error });
     }
 };
 

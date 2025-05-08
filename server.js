@@ -19,7 +19,6 @@ app.use(cors());
 app.use(helmet());
 app.use(express.json());
 app.use('/user', uploadRoutes);
-// Настройка CORS для разрешения запросов с разных источников
 app.use(cors({
     origin: '*',  // Разрешить доступ с любого источника
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
@@ -28,7 +27,7 @@ app.use(cors({
 }));
 
 app.get('/api', (req, res) => {
-    res.send('Hello world from backend PLANERA');
+    res.send('Hello world from backend PLANERA MS');
 });
 
 
@@ -38,6 +37,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api', boardRoutes);
 app.use('/api', taskRoutes);
 app.use('/api/attendance', attendeeRoutes);
+app.use('/api/upload/', uploadRoutes);
 
 const PORT = process.env.PORT || 5000;
 mongoose
