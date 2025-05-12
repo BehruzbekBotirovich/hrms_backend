@@ -17,12 +17,21 @@ const TaskSchema = new mongoose.Schema({
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true },
     boardId: { type: mongoose.Schema.Types.ObjectId, ref: 'Board', required: true },
     taskImg: { type: String, default: null },
-    estimatedHours: { type: Number, default: null },  // Теперь это может быть null
+    estimatedHours: { type: Number, default: null },
     startDate: Date,
     dueDate: Date,
     isArchived: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now },
-    updatedAt: Date
+    updatedAt: Date,
+    statusUpdatedAt: { type: Date, default: null } // ⬅️ добавь это поле
+});
+
+// ⬇️ добавь этот хук ниже
+TaskSchema.pre('save', function (next) {
+    if (this.isModified('status')) {
+        this.statusUpdatedAt = new Date();
+    }
+    next();
 });
 
 export default mongoose.model('Task', TaskSchema);

@@ -2,7 +2,12 @@ import User from '../models/User.js';
 import Task from '../models/Task.js';
 import path from 'path';
 import {parseISO, format} from 'date-fns';  // Импортируем parseISO и format из date-fns
-
+import {
+    startOfMonth,
+    endOfMonth,
+    setMonth,
+    setYear,
+} from 'date-fns';
 // 👤 Получить текущего пользователя user/me
 export const getMe = async (req, res) => {
     try {
@@ -14,16 +19,49 @@ export const getMe = async (req, res) => {
     }
 };
 
+
+export const getMyKPI = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const now = new Date();
+        const monthStart = startOfMonth(now);
+        const monthEnd = endOfMonth(now);
+
+        const completedTasks = await Task.find({
+            assignedTo: userId,
+            status: {$in: ['Done', 'Merge']},
+            completedAt: {$gte: monthStart, $lte: monthEnd},
+            isArchived: false
+        });
+
+        const completedTime = completedTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
+
+        const assignedTasks = await Task.find({
+            assignedTo: userId, isArchived: false, createdAt: {$gte: monthStart, $lte: monthEnd}
+        });
+
+        const totalAssignedTime = assignedTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
+
+        const unassignedCount = await Task.countDocuments({
+            assignedTo: null, isArchived: false, createdAt: {$gte: monthStart, $lte: monthEnd}
+        });
+
+        res.json({
+            completedTime, totalAssignedTime, unassignedCount
+        });
+
+    } catch (error) {
+        res.status(500).json({message: 'Ошибка при расчёте KPI', error});
+    }
+};
+
+
 // 🔄 Обновить СВОИ данные user/me
 export const updateMe = async (req, res) => {
     try {
-        const updatedUser = await User.findByIdAndUpdate(
-            req.user.userId,
-            {
-                ...req.body,  // добавляем новые поля в тело запроса
-            },
-            {new: true}
-        ).select('-password');  // Убираем поле пароля
+        const updatedUser = await User.findByIdAndUpdate(req.user.userId, {
+            ...req.body,  // добавляем новые поля в тело запроса
+        }, {new: true}).select('-password');  // Убираем поле пароля
 
         if (!updatedUser) return res.status(404).json({message: 'Пользователь не найден'});
 
@@ -42,26 +80,21 @@ export const getMeTasks = async (req, res) => {
 
         // Получаем все задачи для текущего пользователя (создатель или назначен)
         const tasks = await Task.find({
-            $or: [{ createdBy: userId }, { assignedTo: userId }],
-            isArchived: false,
+            $or: [{createdBy: userId}, {assignedTo: userId}], isArchived: false,
         })
             .populate('assignedTo', 'fullName avatarUrl')  // Популяция для участников
             .populate('createdBy', 'fullName')  // Популяция для создателя
             .populate('boardId', 'name')  // Популяция для получения названия доски
             .populate('projectId', 'name')  // Популяция для получения названия проекта
-            .sort({ createdAt: -1 });  // Сортировка по дате создания
+            .sort({createdAt: -1});  // Сортировка по дате создания
 
         if (!tasks || tasks.length === 0) {
-            return res.status(404).json({ message: 'Задачи не найдены' });
+            return res.status(404).json({message: 'Задачи не найдены'});
         }
 
         // Инициализация объекта для группировки задач по статусам
         const groupedTasks = {
-            Created: [],
-            InProgress: [],
-            Review: [],
-            Test: [],
-            Done: [],  // Для Merge
+            Created: [], InProgress: [], Review: [], Test: [], Done: [],  // Для Merge
         };
 
         // Форматируем задачи и группируем их по статусу
@@ -85,7 +118,7 @@ export const getMeTasks = async (req, res) => {
         res.json(groupedTasks);
     } catch (error) {
         console.error('Ошибка при получении задач пользователя:', error);
-        res.status(500).json({ message: 'Ошибка при получении задач', error });
+        res.status(500).json({message: 'Ошибка при получении задач', error});
     }
 };
 
@@ -93,17 +126,17 @@ export const getMeTasks = async (req, res) => {
 // создания пользователя
 export const createUser = async (req, res) => {
     try {
-        const { fullName, email, password, role, chatId } = req.body;
+        const {fullName, email, password, role, chatId} = req.body;
         const creatorRole = req.user.role;
 
         // manager не может создавать admin'ов
         if (creatorRole === 'manager' && role === 'admin') {
-            return res.status(403).json({ message: 'Менеджер не может создавать админов' });
+            return res.status(403).json({message: 'Менеджер не может создавать админов'});
         }
 
         // employee не может создавать вообще
         if (creatorRole === 'employee') {
-            return res.status(403).json({ message: 'Сотрудник не может создавать пользователей' });
+            return res.status(403).json({message: 'Сотрудник не может создавать пользователей'});
         }
 
         // Загрузка аватара
@@ -113,30 +146,21 @@ export const createUser = async (req, res) => {
         }
 
         const newUser = new User({
-            fullName,
-            email,
-            password,
-            role,
-            avatarUrl,
-            chatId
+            fullName, email, password, role, avatarUrl, chatId
         });
 
         await newUser.save();
-        res.status(201).json({ message: 'Пользователь создан', user: newUser });
+        res.status(201).json({message: 'Пользователь создан', user: newUser});
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Ошибка при создании пользователя', error });
+        res.status(500).json({message: 'Ошибка при создании пользователя', error});
     }
 };
 
 // 🔄 Обновить пользователя
 export const updateUser = async (req, res) => {
     try {
-        const updatedUser = await User.findByIdAndUpdate(
-            req.params.id,
-            req.body,
-            {new: true}
-        ).select('-password');
+        const updatedUser = await User.findByIdAndUpdate(req.params.id, req.body, {new: true}).select('-password');
         if (!updatedUser) return res.status(404).json({message: 'Пользователь не найден'});
         res.json(updatedUser);
     } catch (error) {
@@ -147,11 +171,7 @@ export const updateUser = async (req, res) => {
 // ❌ Удалить (деактивировать) пользователя
 export const deleteUser = async (req, res) => {
     try {
-        const user = await User.findByIdAndUpdate(
-            req.params.id,
-            {isActive: false},
-            {new: true}
-        );
+        const user = await User.findByIdAndUpdate(req.params.id, {isActive: false}, {new: true});
         if (!user) return res.status(404).json({message: 'Пользователь не найден'});
         res.json({message: 'Пользователь деактивирован'});
     } catch (error) {
@@ -169,3 +189,69 @@ export const getUsers = async (req, res) => {
     }
 };
 
+
+
+export const getAllUsersKPI = async (req, res) => {
+    try {
+        const monthParam = parseInt(req.query.month);
+        const yearParam = parseInt(req.query.year);
+
+        if (isNaN(monthParam) || monthParam < 1 || monthParam > 12) {
+            return res.status(400).json({ message: 'Неверный параметр месяца (1-12)' });
+        }
+
+        if (isNaN(yearParam) || yearParam < 2000 || yearParam > 2100) {
+            return res.status(400).json({ message: 'Неверный параметр года (например, 2024)' });
+        }
+
+        const month = monthParam - 1; // JS месяцы от 0
+        const year = yearParam;
+
+        const baseDate = new Date();
+        const targetMonth = setMonth(setYear(baseDate, year), month);
+        const monthStart = startOfMonth(targetMonth);
+        const monthEnd = endOfMonth(targetMonth);
+
+        const users = await User.find({ role: 'employee', isActive: true });
+
+        const results = [];
+
+        for (const user of users) {
+            const userId = user._id;
+
+            const assignedTasks = await Task.find({
+                assignedTo: { $in: [userId] },
+                isArchived: false,
+                statusUpdatedAt: { $gte: monthStart, $lte: monthEnd }
+            });
+
+            const completedTasks = assignedTasks.filter(task =>
+                    ['Review', 'Test', 'Merge'].includes(task.status)
+                // Если используешь completedAt:
+                // && task.completedAt >= monthStart && task.completedAt <= monthEnd
+            );
+
+            const completedTime = completedTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
+            const totalAssignedTime = assignedTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
+
+            results.push({
+                user: {
+                    _id: user._id,
+                    fullName: user.fullName,
+                    email: user.email,
+                    department: user.department,
+                    avatarUrl: user.avatarUrl || null
+                },
+                assignedCount: assignedTasks.length,
+                completedCount: completedTasks.length,
+                completedTime,
+                totalAssignedTime
+            });
+        }
+
+        res.json(results);
+    } catch (error) {
+        console.error('Ошибка KPI:', error);
+        res.status(500).json({ message: 'Ошибка при расчёте KPI', error });
+    }
+};

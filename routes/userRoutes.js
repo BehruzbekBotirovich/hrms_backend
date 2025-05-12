@@ -10,7 +10,7 @@ import {
     updateUser,
     deleteUser,
     getUsers,
-    getMeTasks
+    getMeTasks, getMyKPI, getAllUsersKPI
 } from '../controllers/userController.js';
 import {verifyToken} from '../middleware/authMiddleware.js';
 
@@ -34,10 +34,11 @@ router.post('/', verifyToken, checkRole(['admin', 'manager']), upload.single('av
 router.get('/', verifyToken, getUsers);
 router.patch('/:id', verifyToken, checkRole(['admin', 'manager']), updateUser);
 router.delete('/:id', verifyToken, checkRole(['admin', 'manager']), deleteUser);
+router.get('/kpi', verifyToken, getAllUsersKPI);
 
 // 👤 Работа со своим профилем
 router.get('/me', verifyToken, getMe);
 router.patch('/me', verifyToken, updateMe);
 router.get('/me/tasks', verifyToken, getMeTasks);
-
+router.get('/me/kpi', verifyToken, getMyKPI);
 export default router;

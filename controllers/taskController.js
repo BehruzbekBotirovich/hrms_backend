@@ -136,6 +136,7 @@ export const updateTask = async (req, res) => {
 };
 
 // 🔁 Изменение статуса задачи
+// 🔁 Изменение статуса задачи
 export const updateTaskStatus = async (req, res) => {
     try {
         const task = await Task.findById(req.params.id);
@@ -150,10 +151,12 @@ export const updateTaskStatus = async (req, res) => {
 
         const fromStatus = task.status;
         const toStatus = req.body.status;
-        task.status = toStatus;  // Обновляем статус
-        task.updatedAt = new Date();
 
-        // Создаем запись в истории
+        task.status = toStatus;
+        task.updatedAt = new Date();
+        task.statusUpdatedAt = new Date(); // ⬅️ ВАЖНО: установить вручную
+
+        // История
         await TaskHistory.create({
             taskId: task._id,
             action: 'Status changed',
@@ -162,43 +165,24 @@ export const updateTaskStatus = async (req, res) => {
             by: userId
         });
 
-        // Сохраняем задачу с обновленным статусом
         await task.save();
 
-        // Формируем сообщение для Telegram
-        const message = `
-            📌 Статус задачи "${task.title}" был изменен:
-            
-            🔑 Старый статус: ${fromStatus}
-            🔄 Новый статус: ${toStatus}
-            
-            Создатель: ${task.createdBy.fullName}
-            🗓 Дата изменения: ${task.updatedAt ? format(new Date(task.updatedAt), 'MMM dd, yyyy, HH:mm') : 'Не указана'}
-        `;
-
-        // Устанавливаем уникальные chatId, чтобы избежать дублирования
+        // Telegram-уведомления (без изменений)
+        const message = `📌 Статус задачи "${task.title}" был изменен:\n\n🔑 Старый статус: ${fromStatus}\n🔄 Новый статус: ${toStatus}\n\nСоздатель: ${task.createdBy.fullName}\n🗓 Дата изменения: ${format(new Date(task.updatedAt), 'MMM dd, yyyy, HH:mm')}`;
         const chatIds = new Set();
 
-        // Добавляем chatId создателя задачи, если он существует
         const creator = await User.findById(task.createdBy);
-        if (creator && creator.chatId) {
-            chatIds.add(creator.chatId);
-        }
+        if (creator?.chatId) chatIds.add(creator.chatId);
 
-        // Добавляем chatId всех назначенных пользователей, если они существуют
         for (const assignedUser of task.assignedTo) {
             const user = await User.findById(assignedUser);
-            if (user && user.chatId) {
-                chatIds.add(user.chatId);
-            }
+            if (user?.chatId) chatIds.add(user.chatId);
         }
 
-        // Отправляем сообщение всем уникальным пользователям (создателю и назначенным)
         for (const chatId of chatIds) {
             await sendTelegramMessage(chatId, message);
         }
 
-        // Ответ клиенту
         res.json({message: 'Статус задачи успешно обновлен и уведомления отправлены.'});
     } catch (error) {
         console.error('Ошибка при изменении статуса задачи:', error);
