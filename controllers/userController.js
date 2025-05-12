@@ -3,10 +3,7 @@ import Task from '../models/Task.js';
 import path from 'path';
 import {parseISO, format} from 'date-fns';  // Импортируем parseISO и format из date-fns
 import {
-    startOfMonth,
-    endOfMonth,
-    setMonth,
-    setYear,
+    startOfMonth, endOfMonth, setMonth, setYear,
 } from 'date-fns';
 // 👤 Получить текущего пользователя user/me
 export const getMe = async (req, res) => {
@@ -189,6 +186,27 @@ export const getUsers = async (req, res) => {
     }
 };
 
+// ♻️ Восстановить пользователя (isActive: true)
+export const reactiveUser = async (req, res) => {
+    try {
+        const userId = req.params.id;
+
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ message: 'Пользователь не найден' });
+
+        if (user.isActive) {
+            return res.status(400).json({ message: 'Пользователь уже активен' });
+        }
+
+        user.isActive = true;
+        await user.save();
+
+        res.json({ message: 'Пользователь успешно восстановлен', user });
+    } catch (error) {
+        console.error('Ошибка при восстановлении пользователя:', error);
+        res.status(500).json({ message: 'Ошибка при восстановлении пользователя', error });
+    }
+};
 
 
 export const getAllUsersKPI = async (req, res) => {
@@ -197,11 +215,11 @@ export const getAllUsersKPI = async (req, res) => {
         const yearParam = parseInt(req.query.year);
 
         if (isNaN(monthParam) || monthParam < 1 || monthParam > 12) {
-            return res.status(400).json({ message: 'Неверный параметр месяца (1-12)' });
+            return res.status(400).json({message: 'Неверный параметр месяца (1-12)'});
         }
 
         if (isNaN(yearParam) || yearParam < 2000 || yearParam > 2100) {
-            return res.status(400).json({ message: 'Неверный параметр года (например, 2024)' });
+            return res.status(400).json({message: 'Неверный параметр года (например, 2024)'});
         }
 
         const month = monthParam - 1; // JS месяцы от 0
@@ -212,7 +230,7 @@ export const getAllUsersKPI = async (req, res) => {
         const monthStart = startOfMonth(targetMonth);
         const monthEnd = endOfMonth(targetMonth);
 
-        const users = await User.find({ role: 'employee', isActive: true });
+        const users = await User.find({isActive: true});
 
         const results = [];
 
@@ -220,13 +238,10 @@ export const getAllUsersKPI = async (req, res) => {
             const userId = user._id;
 
             const assignedTasks = await Task.find({
-                assignedTo: { $in: [userId] },
-                isArchived: false,
-                statusUpdatedAt: { $gte: monthStart, $lte: monthEnd }
+                assignedTo: {$in: [userId]}, isArchived: false, statusUpdatedAt: {$gte: monthStart, $lte: monthEnd}
             });
 
-            const completedTasks = assignedTasks.filter(task =>
-                    ['Review', 'Test', 'Merge'].includes(task.status)
+            const completedTasks = assignedTasks.filter(task => ['Review', 'Test', 'Merge'].includes(task.status)
                 // Если используешь completedAt:
                 // && task.completedAt >= monthStart && task.completedAt <= monthEnd
             );
@@ -252,6 +267,6 @@ export const getAllUsersKPI = async (req, res) => {
         res.json(results);
     } catch (error) {
         console.error('Ошибка KPI:', error);
-        res.status(500).json({ message: 'Ошибка при расчёте KPI', error });
+        res.status(500).json({message: 'Ошибка при расчёте KPI', error});
     }
 };
