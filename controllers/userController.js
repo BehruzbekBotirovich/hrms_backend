@@ -123,7 +123,7 @@ export const getMeTasks = async (req, res) => {
 // создания пользователя
 export const createUser = async (req, res) => {
     try {
-        const {fullName, email, password, role, chatId} = req.body;
+        const { fullName, email, password, role, chatId, phone, department } = req.body;
         const creatorRole = req.user.role;
 
         // manager не может создавать admin'ов
@@ -141,9 +141,15 @@ export const createUser = async (req, res) => {
         if (req.file) {
             avatarUrl = path.basename(req.file.filename);
         }
-
         const newUser = new User({
-            fullName, email, password, role, avatarUrl, chatId
+            fullName,
+            email,
+            password,
+            role,
+            avatarUrl,
+            chatId,
+            phone,
+            department
         });
 
         await newUser.save();
