@@ -155,39 +155,26 @@ export const updateProjectMember = async (req, res) => {
         if (project.owner.toString() !== req.user.userId && !['admin', 'manager'].includes(userRole)) {
             return res.status(403).json({ message: 'Только владелец, админ или менеджер может обновить участников проекта' });
         }
-
-        // Логируем текущий проект и массив участников
-        console.log('Current Project Members:', project.members);
-        console.log('Request Body:', req.body);
-
         const { action, userIds } = req.body;  // action: 'add' или 'remove', userIds: массив идентификаторов сотрудников
 
         if (!Array.isArray(userIds) || userIds.length === 0) {
             return res.status(400).json({ message: 'Массив участников должен быть непустым' });
         }
 
-        // Преобразуем userIds в строки
         const userIdsAsString = userIds.map(id => id.toString());
 
-        // Проверка, что action может быть 'add' или 'remove'
         if (action === 'add') {
-            // Добавляем участников
             userIdsAsString.forEach(userId => {
                 if (!project.members.includes(userId)) {
                     project.members.push(userId);
                 }
             });
         } else if (action === 'remove') {
-            // Исключаем участников, используя строки
             project.members = project.members.filter(memberId => !userIdsAsString.includes(memberId.toString()));
         } else {
             return res.status(400).json({ message: 'Неверный параметр действия. Доступные действия: add, remove' });
         }
 
-        // Логируем проект после изменений
-        console.log('Updated Project Members:', project.members);
-
-        // Сохраняем изменения в проекте
         const updatedProject = await project.save();
         res.json(updatedProject);  // Отправляем обновленный проект в ответ
     } catch (err) {
