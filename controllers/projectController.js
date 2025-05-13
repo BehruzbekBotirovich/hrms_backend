@@ -1,5 +1,6 @@
 import Project from '../models/Project.js';
 import User from '../models/User.js';
+import mongoose from "mongoose";
 
 // 📃 Получить список проектов, где состоит пользователь
 export const getProjects = async (req, res) => {
@@ -88,9 +89,15 @@ export const updateProject = async (req, res) => {
         const project = await Project.findById(req.params.id);
         if (!project) return res.status(404).json({ message: 'Проект не найден' });
 
-        if (project.owner.toString() !== req.user.userId)
-            return res.status(403).json({ message: 'Только владелец может обновить проект' });
+        // Проверка, является ли пользователь владельцем проекта, менеджером или админом
+        const userRole = req.user.role;  // Должно быть в req.user.role, предполагаем, что это поле существует
 
+        // Проверка, если пользователь - не владелец проекта, и не админ/менеджер
+        if (project.owner.toString() !== req.user.userId && !['admin', 'manager'].includes(userRole)) {
+            return res.status(403).json({ message: 'Только владелец, админ или менеджер может обновить проект' });
+        }
+
+        // Обновление проекта
         Object.assign(project, req.body);
         await project.save();
         res.json(project);
@@ -135,5 +142,56 @@ export const getProjectMembers = async (req, res) => {
     } catch (err) {
         console.error('Ошибка при получении сотрудников проекта:', err);
         res.status(500).json({ message: 'Ошибка при получении сотрудников проекта', err });
+    }
+};
+
+export const updateProjectMember = async (req, res) => {
+    try {
+        const project = await Project.findById(req.params.id);
+        if (!project) return res.status(404).json({ message: 'Проект не найден' });
+
+        // Проверка, является ли пользователь владельцем проекта, менеджером или админом
+        const userRole = req.user.role;  // Должно быть в req.user.role, предполагаем, что это поле существует
+        if (project.owner.toString() !== req.user.userId && !['admin', 'manager'].includes(userRole)) {
+            return res.status(403).json({ message: 'Только владелец, админ или менеджер может обновить участников проекта' });
+        }
+
+        // Логируем текущий проект и массив участников
+        console.log('Current Project Members:', project.members);
+        console.log('Request Body:', req.body);
+
+        const { action, userIds } = req.body;  // action: 'add' или 'remove', userIds: массив идентификаторов сотрудников
+
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({ message: 'Массив участников должен быть непустым' });
+        }
+
+        // Преобразуем userIds в строки
+        const userIdsAsString = userIds.map(id => id.toString());
+
+        // Проверка, что action может быть 'add' или 'remove'
+        if (action === 'add') {
+            // Добавляем участников
+            userIdsAsString.forEach(userId => {
+                if (!project.members.includes(userId)) {
+                    project.members.push(userId);
+                }
+            });
+        } else if (action === 'remove') {
+            // Исключаем участников, используя строки
+            project.members = project.members.filter(memberId => !userIdsAsString.includes(memberId.toString()));
+        } else {
+            return res.status(400).json({ message: 'Неверный параметр действия. Доступные действия: add, remove' });
+        }
+
+        // Логируем проект после изменений
+        console.log('Updated Project Members:', project.members);
+
+        // Сохраняем изменения в проекте
+        const updatedProject = await project.save();
+        res.json(updatedProject);  // Отправляем обновленный проект в ответ
+    } catch (err) {
+        console.error('Error during participant update:', err);
+        res.status(500).json({ message: 'Ошибка при обновлении участников проекта', err });
     }
 };
