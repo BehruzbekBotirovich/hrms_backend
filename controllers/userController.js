@@ -20,38 +20,52 @@ export const getMe = async (req, res) => {
 export const getMyKPI = async (req, res) => {
     try {
         const userId = req.user.userId;
-        const now = new Date();
-        const monthStart = startOfMonth(now);
-        const monthEnd = endOfMonth(now);
+        const monthParam = parseInt(req.query.month);
+        const yearParam = parseInt(req.query.year);
 
-        const completedTasks = await Task.find({
-            assignedTo: userId,
-            status: {$in: ['Done', 'Merge']},
-            completedAt: {$gte: monthStart, $lte: monthEnd},
-            isArchived: false
-        });
+        if (isNaN(monthParam) || monthParam < 1 || monthParam > 12) {
+            return res.status(400).json({ message: 'Неверный параметр месяца (1-12)' });
+        }
 
-        const completedTime = completedTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
+        if (isNaN(yearParam) || yearParam < 2000 || yearParam > 2100) {
+            return res.status(400).json({ message: 'Неверный параметр года (например, 2024)' });
+        }
+
+        const month = monthParam - 1; // месяцы от 0
+        const year = yearParam;
+
+        const baseDate = new Date();
+        const targetMonth = setMonth(setYear(baseDate, year), month);
+        const monthStart = startOfMonth(targetMonth);
+        const monthEnd = endOfMonth(targetMonth);
 
         const assignedTasks = await Task.find({
-            assignedTo: userId, isArchived: false, createdAt: {$gte: monthStart, $lte: monthEnd}
+            assignedTo: { $in: [userId] },
+            isArchived: false,
+            statusUpdatedAt: { $gte: monthStart, $lte: monthEnd }
         });
 
+        const completedTasks = assignedTasks.filter(task =>
+            ['Review', 'Test', 'Merge'].includes(task.status)
+        );
+
+        const assignedCount = assignedTasks.length;
+        const completedCount = completedTasks.length;
+        const completedTime = completedTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
         const totalAssignedTime = assignedTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
 
-        const unassignedCount = await Task.countDocuments({
-            assignedTo: null, isArchived: false, createdAt: {$gte: monthStart, $lte: monthEnd}
-        });
-
         res.json({
-            completedTime, totalAssignedTime, unassignedCount
+            assignedCount,
+            completedCount,
+            completedTime,
+            totalAssignedTime
         });
 
     } catch (error) {
-        res.status(500).json({message: 'Ошибка при расчёте KPI', error});
+        console.error('Ошибка при расчёте KPI текущего пользователя:', error);
+        res.status(500).json({ message: 'Ошибка при расчёте KPI', error });
     }
 };
-
 
 // 🔄 Обновить СВОИ данные user/me
 export const updateMe = async (req, res) => {
