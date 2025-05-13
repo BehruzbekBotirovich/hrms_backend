@@ -162,7 +162,6 @@ export const updateProjectMember = async (req, res) => {
         }
 
         const userIdsAsString = userIds.map(id => id.toString());
-
         if (action === 'add') {
             userIdsAsString.forEach(userId => {
                 if (!project.members.includes(userId)) {
