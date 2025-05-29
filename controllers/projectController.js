@@ -6,14 +6,47 @@ import mongoose from "mongoose";
 export const getProjects = async (req, res) => {
     try {
         const userId = req.user.userId;
+        const { isArchived, isActive, search } = req.query; // Получаем параметры фильтрации из query
 
-        // Найдем проекты, где текущий пользователь является владельцем или участником
-        const projects = await Project.find({
-            $or: [{ owner: userId }, { members: userId }],
-            isArchived: false
-        })
+        // Фильтрация для админов
+        let filter = {};
+
+        // Если роль пользователя 'admin', возвращаем все проекты
+        if (req.user.role === 'admin') {
+            if (isArchived !== undefined) {
+                filter.isArchived = isArchived === 'false';
+            }
+
+            if (isActive !== undefined) {
+                filter.isActive = isActive === 'true';
+            }
+
+            if (search) {
+                filter.name = { $regex: search, $options: 'i' }; // Поиск по имени проекта
+            }
+        } else {
+            // Для обычных пользователей фильтруем по участникам и создателю
+            filter = {
+                $or: [{ owner: userId }, { members: userId }],
+            };
+
+            // Фильтрация по архивированию
+            filter.isArchived = isArchived !== undefined ? isArchived === 'true' : false;
+
+            if (isActive !== undefined) {
+                filter.isActive = isActive === 'true';
+            }
+
+            // Добавляем фильтрацию по поиску по имени проекта
+            if (search) {
+                filter.name = { $regex: search, $options: 'i' }; // Поиск по имени
+            }
+        }
+
+        // Получаем проекты по фильтру
+        const projects = await Project.find(filter)
             .populate('owner', 'fullName')  // Заполняем имя создателя проекта
-            .populate('members', 'fullName')  // Заполняем имена участников
+            .populate('members', 'fullName avatarUrl')  // Заполняем имена участников и avatarUrl
             .exec();
 
         // Преобразуем проекты с добавлением информации о количестве участников
@@ -25,7 +58,10 @@ export const getProjects = async (req, res) => {
                 description: project.description,
                 owner: project.owner.fullName,  // Имя владельца
                 membersCount: project.members.length,  // Количество участников
-                membersNames: project.members.map(member => member.fullName)  // Список имен участников
+                members: project.members.map(member => ({
+                    fullName: member.fullName,
+                    avatarUrl: member.avatarUrl || null,  // Ссылка на аватарку
+                }))  // Список участников с аватарками
             };
         });
 
@@ -39,10 +75,10 @@ export const getProjects = async (req, res) => {
 // ➕ Создать проект
 export const createProject = async (req, res) => {
     try {
-        const { name, description, members } = req.body;  // Получаем имя, описание и сотрудников (members)
+        const {name, description, members} = req.body;  // Получаем имя, описание и сотрудников (members)
 
         if (!name || !description || !members || members.length === 0) {
-            return res.status(400).json({ message: 'Необходимы имя, описание и хотя бы один сотрудник' });
+            return res.status(400).json({message: 'Необходимы имя, описание и хотя бы один сотрудник'});
         }
         // Создаем новый проект
         const newProject = new Project({
@@ -59,7 +95,7 @@ export const createProject = async (req, res) => {
         res.status(201).json(newProject);  // Отправляем созданный проект
     } catch (err) {
         console.error('Ошибка при добавлении проекта:', err);
-        res.status(500).json({ message: 'Ошибка при добавлении проекта', err });
+        res.status(500).json({message: 'Ошибка при добавлении проекта', err});
     }
 };
 
@@ -67,19 +103,19 @@ export const createProject = async (req, res) => {
 export const getProjectById = async (req, res) => {
     try {
         const project = await Project.findById(req.params.id).populate('owner members', '-password');
-        if (!project) return res.status(404).json({ message: 'Проект не найден' });
+        if (!project) return res.status(404).json({message: 'Проект не найден'});
 
         // Проверка: имеет ли пользователь доступ?
         const userId = req.user.userId;
         const isMember = project.members.some(member => member._id.toString() === userId);
         const isOwner = project.owner._id.toString() === userId;
         if (!isOwner && !isMember) {
-            return res.status(403).json({ message: 'Нет доступа к этому проекту' });
+            return res.status(403).json({message: 'Нет доступа к этому проекту'});
         }
 
         res.json(project);
     } catch (err) {
-        res.status(500).json({ message: 'Ошибка получения проекта', err });
+        res.status(500).json({message: 'Ошибка получения проекта', err});
     }
 };
 
@@ -87,14 +123,14 @@ export const getProjectById = async (req, res) => {
 export const updateProject = async (req, res) => {
     try {
         const project = await Project.findById(req.params.id);
-        if (!project) return res.status(404).json({ message: 'Проект не найден' });
+        if (!project) return res.status(404).json({message: 'Проект не найден'});
 
         // Проверка, является ли пользователь владельцем проекта, менеджером или админом
         const userRole = req.user.role;  // Должно быть в req.user.role, предполагаем, что это поле существует
 
         // Проверка, если пользователь - не владелец проекта, и не админ/менеджер
         if (project.owner.toString() !== req.user.userId && !['admin', 'manager'].includes(userRole)) {
-            return res.status(403).json({ message: 'Только владелец, админ или менеджер может обновить проект' });
+            return res.status(403).json({message: 'Только владелец, админ или менеджер может обновить проект'});
         }
 
         // Обновление проекта
@@ -102,7 +138,7 @@ export const updateProject = async (req, res) => {
         await project.save();
         res.json(project);
     } catch (err) {
-        res.status(500).json({ message: 'Ошибка обновления проекта', err });
+        res.status(500).json({message: 'Ошибка обновления проекта', err});
     }
 };
 
@@ -110,23 +146,23 @@ export const updateProject = async (req, res) => {
 export const archiveProject = async (req, res) => {
     try {
         const project = await Project.findById(req.params.id);
-        if (!project) return res.status(404).json({ message: 'Проект не найден' });
+        if (!project) return res.status(404).json({message: 'Проект не найден'});
 
         if (project.owner.toString() !== req.user.userId)
-            return res.status(403).json({ message: 'Только владелец может архивировать проект' });
+            return res.status(403).json({message: 'Только владелец может архивировать проект'});
 
         project.isArchived = true;
         await project.save();
-        res.json({ message: 'Проект архивирован' });
+        res.json({message: 'Проект архивирован'});
     } catch (err) {
-        res.status(500).json({ message: 'Ошибка при архивировании', err });
+        res.status(500).json({message: 'Ошибка при архивировании', err});
     }
 };
 
 // get members of project
 export const getProjectMembers = async (req, res) => {
     try {
-        const { projectId } = req.params;
+        const {projectId} = req.params;
 
         // Получаем проект по ID
         const project = await Project.findById(projectId)
@@ -134,31 +170,31 @@ export const getProjectMembers = async (req, res) => {
             .exec();
 
         if (!project) {
-            return res.status(404).json({ message: 'Проект не найден' });
+            return res.status(404).json({message: 'Проект не найден'});
         }
 
         // Возвращаем список сотрудников с дополнительными полями
         res.json(project.members);
     } catch (err) {
         console.error('Ошибка при получении сотрудников проекта:', err);
-        res.status(500).json({ message: 'Ошибка при получении сотрудников проекта', err });
+        res.status(500).json({message: 'Ошибка при получении сотрудников проекта', err});
     }
 };
 
 export const updateProjectMember = async (req, res) => {
     try {
         const project = await Project.findById(req.params.id);
-        if (!project) return res.status(404).json({ message: 'Проект не найден' });
+        if (!project) return res.status(404).json({message: 'Проект не найден'});
 
         // Проверка, является ли пользователь владельцем проекта, менеджером или админом
         const userRole = req.user.role;  // Должно быть в req.user.role, предполагаем, что это поле существует
         if (project.owner.toString() !== req.user.userId && !['admin', 'manager'].includes(userRole)) {
-            return res.status(403).json({ message: 'Только владелец, админ или менеджер может обновить участников проекта' });
+            return res.status(403).json({message: 'Только владелец, админ или менеджер может обновить участников проекта'});
         }
-        const { action, userIds } = req.body;  // action: 'add' или 'remove', userIds: массив идентификаторов сотрудников
+        const {action, userIds} = req.body;  // action: 'add' или 'remove', userIds: массив идентификаторов сотрудников
 
         if (!Array.isArray(userIds) || userIds.length === 0) {
-            return res.status(400).json({ message: 'Массив участников должен быть непустым' });
+            return res.status(400).json({message: 'Массив участников должен быть непустым'});
         }
 
         const userIdsAsString = userIds.map(id => id.toString());
@@ -171,13 +207,13 @@ export const updateProjectMember = async (req, res) => {
         } else if (action === 'remove') {
             project.members = project.members.filter(memberId => !userIdsAsString.includes(memberId.toString()));
         } else {
-            return res.status(400).json({ message: 'Неверный параметр действия. Доступные действия: add, remove' });
+            return res.status(400).json({message: 'Неверный параметр действия. Доступные действия: add, remove'});
         }
 
         const updatedProject = await project.save();
         res.json(updatedProject);  // Отправляем обновленный проект в ответ
     } catch (err) {
         console.error('Error during participant update:', err);
-        res.status(500).json({ message: 'Ошибка при обновлении участников проекта', err });
+        res.status(500).json({message: 'Ошибка при обновлении участников проекта', err});
     }
 };
