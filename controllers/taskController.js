@@ -82,10 +82,11 @@ export const getAllTasks = async (req, res) => {
 };
 
 // ✏️ Обновить задачу (только автор или участник)
+// ✏️ Обновить задачу (только автор или участник, админ может любые изменения)
 export const updateTask = async (req, res) => {
     try {
         const task = await Task.findById(req.params.id);
-        if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+        if (!task) return res.status(404).json({message: 'Задача не найдена'});
 
         const userId = req.user.userId;
         const isCreator = task.createdBy.toString() === userId;
@@ -93,20 +94,17 @@ export const updateTask = async (req, res) => {
         const isManager = req.user.role === 'manager' || req.user.role === 'admin';
 
         if (!isCreator && !isAssigned && !isManager) {
-            return res.status(403).json({ message: 'Нет прав редактировать задачу' });
+            return res.status(403).json({message: 'Нет прав редактировать задачу'});
         }
 
         // Изменение полей задачи, кроме статуса
-        const { title, description, priority, estimatedHours, startDate, dueDate, assignedTo } = req.body;
+        const {title, description, priority, estimatedHours, startDate, dueDate, assignedTo} = req.body;
 
-        // Если есть новое изображение, обновляем его (не добавляем к старому, а заменяем)
         let taskImg = task.taskImg;  // Сохраняем старое изображение, если оно есть
         if (req.file) {
-            // Если в запросе передано новое изображение, обновляем путь
             taskImg = path.basename(req.file.filename);
         }
 
-        // Преобразуем поля для обновления:
         const updateData = {
             title,
             description,
@@ -123,20 +121,42 @@ export const updateTask = async (req, res) => {
         const updatedTask = await Task.findByIdAndUpdate(
             req.params.id,
             updateData,
-            { new: true }  // возвращаем обновленный объект
-        ).populate('assignedTo', 'fullName avatarUrl')  // Популяция для участников
-            .populate('createdBy', 'fullName'); // Популяция для создателя
+            {new: true}
+        ).populate('assignedTo', 'fullName avatarUrl')
+            .populate('createdBy', 'fullName');
+
+        // Формируем уведомление для Telegram
+        const message = `
+        📌 Задача "${updatedTask.title}" была обновлена:
+        
+        <b>Изменения:</b>
+        📝 Описание: ${updatedTask.description || 'Не указано'}
+        📅 Дедлайн: ${updatedTask.dueDate ? updatedTask.dueDate.toLocaleDateString() : 'Не указан'}
+        🚀 Назначенные: ${updatedTask.assignedTo.map(user => user.fullName).join(', ')}
+
+        Создатель: ${updatedTask.createdBy.fullName}
+        🗓 Дата изменения: ${format(new Date(updatedTask.updatedAt), 'MMM dd, yyyy, HH:mm')}
+        `;
+
+        // Получаем chatIds для создателя и назначенных участников
+        const chatIds = new Set([updatedTask.createdBy.chatId]);
+        updatedTask.assignedTo.forEach(user => {
+            if (user.chatId) chatIds.add(user.chatId);
+        });
+
+        // Отправляем сообщение всем получателям
+        for (const chatId of chatIds) {
+            await sendTelegramMessage(chatId, message);
+        }
 
         res.json(updatedTask);
-
     } catch (error) {
         console.error('Ошибка при обновлении задачи:', error);
-        res.status(500).json({ message: 'Ошибка при обновлении задачи', error });
+        res.status(500).json({message: 'Ошибка при обновлении задачи', error});
     }
 };
 
-// 🔁 Изменение статуса задачи
-// 🔁 Изменение статуса задачи
+// 🔁 Изменение статуса задачи (с уведомлением в Telegram)
 export const updateTaskStatus = async (req, res) => {
     try {
         const task = await Task.findById(req.params.id);
@@ -145,7 +165,9 @@ export const updateTaskStatus = async (req, res) => {
         const userId = req.user.userId;
         const isCreator = task.createdBy.toString() === userId;
         const isAssigned = task.assignedTo.includes(userId);
-        if (!isCreator && !isAssigned) {
+        const isManager = req.user.role === 'manager' || req.user.role === 'admin';
+
+        if (!isCreator && !isAssigned && !isManager) {
             return res.status(403).json({message: 'Нет прав менять статус задачи'});
         }
 
@@ -154,7 +176,7 @@ export const updateTaskStatus = async (req, res) => {
 
         task.status = toStatus;
         task.updatedAt = new Date();
-        task.statusUpdatedAt = new Date(); // ⬅️ ВАЖНО: установить вручную
+        task.statusUpdatedAt = new Date(); // Устанавливаем вручную
 
         // История
         await TaskHistory.create({
@@ -167,18 +189,24 @@ export const updateTaskStatus = async (req, res) => {
 
         await task.save();
 
-        // Telegram-уведомления (без изменений)
-        const message = `📌 Статус задачи "${task.title}" был изменен:\n\n🔑 Старый статус: ${fromStatus}\n🔄 Новый статус: ${toStatus}\n\nСоздатель: ${task.createdBy.fullName}\n🗓 Дата изменения: ${format(new Date(task.updatedAt), 'MMM dd, yyyy, HH:mm')}`;
-        const chatIds = new Set();
+        // Формируем уведомление для Telegram
+        const message = `
+        📌 Статус задачи "${task.title}" изменен:
 
-        const creator = await User.findById(task.createdBy);
-        if (creator?.chatId) chatIds.add(creator.chatId);
+        🔑 Старый статус: ${fromStatus}
+        🔄 Новый статус: ${toStatus}
 
-        for (const assignedUser of task.assignedTo) {
-            const user = await User.findById(assignedUser);
-            if (user?.chatId) chatIds.add(user.chatId);
-        }
+        Создатель: ${task.createdBy.fullName}
+        🗓 Дата изменения: ${format(new Date(task.updatedAt), 'MMM dd, yyyy, HH:mm')}
+        `;
 
+        // Получаем chatIds для создателя и назначенных участников
+        const chatIds = new Set([task.createdBy.chatId]);
+        task.assignedTo.forEach(user => {
+            if (user.chatId) chatIds.add(user.chatId);
+        });
+
+        // Отправляем сообщение всем получателям
         for (const chatId of chatIds) {
             await sendTelegramMessage(chatId, message);
         }
